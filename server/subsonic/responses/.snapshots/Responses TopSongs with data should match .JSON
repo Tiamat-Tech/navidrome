@@ -16,7 +16,10 @@
         "sortName": "",
         "mediaType": "",
         "musicBrainzId": "",
-        "genres": []
+        "genres": [],
+        "replayGain": {},
+        "channelCount": 0,
+        "samplingRate": 0
       }
     ]
   }

@@ -11,6 +11,9 @@
     "genres": [],
     "musicBrainzId": "",
     "isCompilation": false,
-    "sortName": ""
+    "sortName": "",
+    "discTitles": [],
+    "originalReleaseDate": {},
+    "releaseDate": {}
   }
 }
