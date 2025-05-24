@@ -247,12 +247,14 @@ func (r *artistRepository) purgeEmpty() error {
 // markMissing sets the Missing flag based on album data.
 func (r *artistRepository) markMissing() (int64, error) {
 	q := Expr(`
-                update artist
-                set missing = not exists (
-                        select 1 from album_artists aa
-                        join album a on aa.album_id = a.id
-                        where aa.artist_id = artist.id and a.missing = false
-                )
+with artists_with_non_missing_albums as (
+    select distinct aa.artist_id
+    from album_artists aa
+    join album a on aa.album_id = a.id
+    where a.missing = false
+)
+update artist
+set missing = (artist.id not in (select artist_id from artists_with_non_missing_albums));
         `)
 	c, err := r.executeSQL(q)
 	if err != nil {
