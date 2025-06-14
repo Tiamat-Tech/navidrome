@@ -3,8 +3,12 @@ package scrobbler
 import (
 	"context"
 	"errors"
+	"net/http"
+	"sync"
 	"time"
 
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/consts"
 
 	"github.com/navidrome/navidrome/model"
@@ -19,6 +23,7 @@ var _ = Describe("PlayTracker", func() {
 	var ctx context.Context
 	var ds model.DataStore
 	var tracker PlayTracker
+	var eventBroker *fakeEventBroker
 	var track model.MediaFile
 	var album model.Album
 	var artist1 model.Artist
@@ -26,6 +31,7 @@ var _ = Describe("PlayTracker", func() {
 	var fake fakeScrobbler
 
 	BeforeEach(func() {
+		DeferCleanup(configtest.SetupConfig())
 		ctx = context.Background()
 		ctx = request.WithUser(ctx, model.User{ID: "u-1"})
 		ctx = request.WithPlayer(ctx, model.Player{ScrobbleEnabled: true})
@@ -37,7 +43,8 @@ var _ = Describe("PlayTracker", func() {
 		Register("disabled", func(model.DataStore) Scrobbler {
 			return nil
 		})
-		tracker = newPlayTracker(ds, events.GetBroker())
+		eventBroker = &fakeEventBroker{}
+		tracker = newPlayTracker(ds, eventBroker)
 		tracker.(*playTracker).scrobblers["fake"] = &fake // Bypass buffering for tests
 
 		track = model.MediaFile{
@@ -99,6 +106,23 @@ var _ = Describe("PlayTracker", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fake.NowPlayingCalled).To(BeFalse())
 		})
+
+		It("sends event with count", func() {
+			err := tracker.NowPlaying(ctx, "player-1", "player-one", "123")
+			Expect(err).ToNot(HaveOccurred())
+			eventList := eventBroker.getEvents()
+			Expect(eventList).ToNot(BeEmpty())
+			evt, ok := eventList[0].(*events.NowPlayingCount)
+			Expect(ok).To(BeTrue())
+			Expect(evt.Count).To(Equal(1))
+		})
+
+		It("does not send event when disabled", func() {
+			conf.Server.EnableNowPlaying = false
+			err := tracker.NowPlaying(ctx, "player-1", "player-one", "123")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventBroker.getEvents()).To(BeEmpty())
+		})
 	})
 
 	Describe("GetNowPlaying", func() {
@@ -124,6 +148,26 @@ var _ = Describe("PlayTracker", func() {
 			Expect(playing[1].PlayerName).To(Equal("player-one"))
 			Expect(playing[1].Username).To(Equal("user-1"))
 			Expect(playing[1].MediaFile.ID).To(Equal("123"))
+		})
+	})
+
+	Describe("Expiration events", func() {
+		It("sends event when entry expires", func() {
+			info := NowPlayingInfo{MediaFile: track, Start: time.Now(), Username: "user"}
+			_ = tracker.(*playTracker).playMap.AddWithTTL("player-1", info, 10*time.Millisecond)
+			Eventually(func() int { return len(eventBroker.getEvents()) }).Should(BeNumerically(">", 0))
+			eventList := eventBroker.getEvents()
+			evt, ok := eventList[len(eventList)-1].(*events.NowPlayingCount)
+			Expect(ok).To(BeTrue())
+			Expect(evt.Count).To(Equal(0))
+		})
+
+		It("does not send event when disabled", func() {
+			conf.Server.EnableNowPlaying = false
+			tracker = newPlayTracker(ds, eventBroker)
+			info := NowPlayingInfo{MediaFile: track, Start: time.Now(), Username: "user"}
+			_ = tracker.(*playTracker).playMap.AddWithTTL("player-2", info, 10*time.Millisecond)
+			Consistently(func() int { return len(eventBroker.getEvents()) }).Should(Equal(0))
 		})
 	})
 
@@ -243,3 +287,23 @@ func _p(id, name string, sortName ...string) model.Participant {
 	}
 	return p
 }
+
+type fakeEventBroker struct {
+	http.Handler
+	events []events.Event
+	mu     sync.Mutex
+}
+
+func (f *fakeEventBroker) SendMessage(_ context.Context, event events.Event) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, event)
+}
+
+func (f *fakeEventBroker) getEvents() []events.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.events
+}
+
+var _ events.Broker = (*fakeEventBroker)(nil)

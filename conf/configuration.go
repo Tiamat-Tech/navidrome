@@ -14,7 +14,7 @@ import (
 	"github.com/kr/pretty"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
-	"github.com/navidrome/navidrome/utils/chain"
+	"github.com/navidrome/navidrome/utils/run"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/viper"
 )
@@ -80,6 +80,7 @@ type configOptions struct {
 	DefaultUIVolume                 int
 	EnableReplayGain                bool
 	EnableCoverAnimation            bool
+	EnableNowPlaying                bool
 	GATrackingID                    string
 	EnableLogRedacting              bool
 	AuthRequestLimit                int
@@ -275,7 +276,7 @@ func Load(noConfigDump bool) {
 	log.SetLogSourceLine(Server.DevLogSourceLine)
 	log.SetRedacting(Server.EnableLogRedacting)
 
-	err = chain.RunSequentially(
+	err = run.Sequentially(
 		validateScanSchedule,
 		validateBackupSchedule,
 		validatePlaylistsPath,
@@ -491,6 +492,7 @@ func setViperDefaults() {
 	viper.SetDefault("defaultuivolume", consts.DefaultUIVolume)
 	viper.SetDefault("enablereplaygain", true)
 	viper.SetDefault("enablecoveranimation", true)
+	viper.SetDefault("enablenowplaying", true)
 	viper.SetDefault("enablesharing", false)
 	viper.SetDefault("shareurl", "")
 	viper.SetDefault("defaultshareexpiration", 8760*time.Hour)
